@@ -1,0 +1,45 @@
+{
+    "plugins": [
+		"-lunr"	,
+		"-search",
+		"search-pro",
+		"tbfed-pagefooter", 
+		"expandable-chapters",
+		"editlink",
+		"katex",
+		"splitter",
+		"github",
+		"code",
+		"pageview-count",
+		"back-to-top-button",
+		"livereload"
+    ],
+	
+    "pluginsConfig": {  
+		"tbfed-pagefooter": {
+			"copyright": "",
+			"modify_label": "修订时间：",
+			"modify_format": "YYYY-MM-DD HH:mm:ss"
+		},
+		"editlink": {
+			"base": "https://github.com/emilywz/GoStudyBook/tree/master/gobook",
+			"label": "Edit This Page",
+			"multilingual": false
+		},
+		"search-pro": {
+			"cutWordLib": "nodejieba",
+			"defineWord" : ["Gitbook Use"]
+		},
+		"github":{
+			"url":"https://github.com/emilywz/"
+		}
+	},
+    "description": "emily go",
+    "author": "emily",
+    "language": "zh-hans",
+	"root": "./",
+	"label": {
+        "en": "Edit This Page",
+        "zh-cn": "编辑本页"
+    }
+}
