@@ -12,12 +12,13 @@
 		"code",
 		"pageview-count",
 		"back-to-top-button",
-		"livereload"
+		"livereload",
+		"page-treeview"
     ],
 	
     "pluginsConfig": {  
 		"tbfed-pagefooter": {
-			"copyright": "",
+			"copyright": "Copyright &#169; Emily",
 			"modify_label": "修订时间：",
 			"modify_format": "YYYY-MM-DD HH:mm:ss"
 		},
@@ -32,6 +33,11 @@
 		},
 		"github":{
 			"url":"https://github.com/emilywz/"
+		},
+		"page-treeview": {
+            "copyright": "Copyright &#169; Emily",
+            "minHeaderCount": "2",
+            "minHeaderDeep": "2"
 		}
 	},
     "description": "emily go",
