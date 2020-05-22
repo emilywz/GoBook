@@ -3,6 +3,7 @@
 		"-lunr"	,
 		"-search",
 		"search-pro",
+		"pageview-count",
 		"tbfed-pagefooter", 
 		"expandable-chapters",
 		"editlink",
@@ -10,10 +11,11 @@
 		"splitter",
 		"github",
 		"code",
-		"pageview-count",
-		"back-to-top-button",
 		"livereload",
-		"page-treeview"
+		"page-treeview",
+		"popup",
+		"advanced-emoji",
+		"anchor-navigation-ex"
     ],
 	
     "pluginsConfig": {  
@@ -23,7 +25,7 @@
 			"modify_format": "YYYY-MM-DD HH:mm:ss"
 		},
 		"editlink": {
-			"base": "https://github.com/emilywz/GoStudyBook/tree/master/gobook",
+			"base": "https://github.com/emilywz/GoBook/tree/master/",
 			"label": "Edit This Page",
 			"multilingual": false
 		},
@@ -32,15 +34,28 @@
 			"defineWord" : ["Gitbook Use"]
 		},
 		"github":{
-			"url":"https://github.com/emilywz/"
+			"url":"https://github.com/emilywz/GoBook"
 		},
 		"page-treeview": {
             "copyright": "Copyright &#169; Emily",
             "minHeaderCount": "2",
             "minHeaderDeep": "2"
+		},
+		"anchor-navigation-ex": {
+			"showLevel": false,
+			"associatedWithSummary": true,
+			"printLog": true,
+			"multipleH1": true,
+			"mode": "float",
+			"float": {
+				"showLevelIcon": false,
+				"level1Icon": "fa fa-hand-o-right",
+				"level2Icon": "fa fa-hand-o-right",
+				"level3Icon": "fa fa-hand-o-right"
+			}
 		}
 	},
-    "description": "emily go",
+    "description": "emily go study",
     "author": "emily",
     "language": "zh-hans",
 	"root": "./",
