@@ -1,24 +1,17 @@
-# 并发爬虫
+//并发爬虫
+package main
 
-## 导入类库
-
-```go
 import (
 	"fmt"
-	"regexp"
-	"net/http"
 	"io/ioutil"
+	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"strconv"
 )
 
-```
-
-## 定义全局数据
-
-```go
 var (
 	//存放图片链接
 	chanImgUrls chan string
@@ -27,11 +20,49 @@ var (
 	waitGroup sync.WaitGroup
 )
 
-```
+var (
+	//邮箱
+	reQQEmail = `(\w+)@qq.com`
+	reEmail   = `\w+@\w+\.\w+(\.\w+)?`
 
-## 爬取一个页面上的全部图片链接，返回结果切片
+	//超链接
+	//<a href="http://news.baidu.com/ns?cl=2&rn=20&tn=news&word=%C1%F4%CF%C2%D3%CA%CF%E4%20%B5%BA%B9%FA"
+	reLinkBad = `<a[\s\S]*?href="(https?://[\s\S]+?)"`
+	reLink    = `href="(https?://[\s\S]+?)"`
 
-```go
+	//手机号
+	//13x xxxx xxxx
+	rePhone = `1[345789]\d\s?\d{4}\s?\d{4}`
+
+	//身份证号
+	//123456 1990 0817 123X
+	reIdcard = `[123456]\d{5}((19\d{2})|(20[01]\d))((0[1-9])|(1[012]))((0[1-9])|([12]\d)|(3[01]))\d{3}[\dX]`
+
+	//图片链接
+	//"http://img2.imgtn.bdimg.com/it/u=2403021088,4222830812&fm=26&gp=0.jpg"
+	reImg = `"(https?://[^"]+?(\.((jpg)|(jpeg)|(png)|(gif)|(bmp)|(svg)|(swf)|(ico))))"`
+
+)
+
+func HandleError(err error, why string) {
+	if err != nil {
+		fmt.Print(why, err)
+	}
+}
+
+
+func GetPageStr(url string) (pageStr string) {
+	resp, err := http.Get(url)
+	HandleError(err, "http.Get url")
+	defer resp.Body.Close()
+	pageBytes, err := ioutil.ReadAll(resp.Body)
+	HandleError(err, "ioutil.ReadAll")
+	pageStr = string(pageBytes)
+	return pageStr
+}
+
+
+
 func SpiderPrettyImg(url string) (urls []string) {
 	pageStr := GetPageStr(url)
 	//fmt.Println(pageStr)
@@ -48,11 +79,6 @@ func SpiderPrettyImg(url string) (urls []string) {
 
 }
 
-```
-
-## 从url中提取文件名称
-
-```go
 func GetFilenameFromUrl(url string, dirPath string) (filename string) {
 	lastIndex := strings.LastIndex(url, "/")
 	filename = url[lastIndex+1:]
@@ -63,11 +89,6 @@ func GetFilenameFromUrl(url string, dirPath string) (filename string) {
 	return
 }
 
-```
-
-## 下载url对应的文件到指定路径
-
-```go
 func DownloadFile(url string, filename string) (ok bool) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -90,11 +111,6 @@ func DownloadFile(url string, filename string) (ok bool) {
 
 }
 
-```
-
-## 爬取一个页面下的所有图片链接，并丢入全局待下载数据管道
-
-```go
 func SpiderImgUrls(url string) {
 	//获取一个页面下的所有图片链接
 	urls := SpiderPrettyImg(url)
@@ -109,11 +125,6 @@ func SpiderImgUrls(url string) {
 
 }
 
-```
-
-## 同步下载图片链接管道中的所有图片
-
-```go
 func DownloadImg() {
 	for url := range chanImgUrls {
 		filename := GetFilenameFromUrl(url, "D:/BJBlockChain1801/demos/W4/day4/img/")
@@ -127,11 +138,6 @@ func DownloadImg() {
 	waitGroup.Done()
 }
 
-```
-
-## 检查147个任务是否全部完成，完成则关闭数据管道
-
-```go
 func CheckIfAllSpidersOk() {
 	var count int
 	for {
@@ -146,11 +152,6 @@ func CheckIfAllSpidersOk() {
 	waitGroup.Done()
 }
 
-```
-
-## 主程序
-
-```go
 func main() {
 	//初始化数据管道
 	chanImgUrls = make(chan string, 1000000)
@@ -161,11 +162,11 @@ func main() {
 		waitGroup.Add(1)
 		go SpiderImgUrls("http://www.umei.cc/tags/meinv_" + strconv.Itoa(i) + ".htm")
 	}
-	
+
 	//开辟任务统计协程，如果147个任务全部完成，则关闭数据管道
 	waitGroup.Add(1)
 	go CheckIfAllSpidersOk()
-	
+
 	//下载协程：源源不断地从管道中读取地址并下载
 	for i := 0; i < 10; i++ {
 		waitGroup.Add(1)
@@ -174,6 +175,3 @@ func main() {
 	waitGroup.Wait()
 
 }
-
-```
-

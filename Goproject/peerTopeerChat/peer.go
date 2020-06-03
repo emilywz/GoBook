@@ -1,23 +1,3 @@
-# 点对点聊天
-
-## 需求摘要
-
-- 实现一个分布式点对点的聊天系统，所有节点都是对等的，不需要中央服务器
-- 实现注册节点名称，节点之间通过节点名称发起会话
-
-## 思路分析
-
-- 节点同时具备服务端和客户端的职能
-- 服务端只负责接收其它节点主动发送过来的消息
-- 客户端只负责主动向其它节点发送消息
-- 通信都用短连接，服务端收完消息/客户端发完消息都断开conn——一方面是节约IO资源，另一方面是为了使逻辑清晰
-- 节点名称注册到【注册服务器】（很像DNS），以便根据节点名称访问节点而不是监听端口
-
-## 节点代码实现
-
-### peer.go代码实现如下
-
-```go
 package main
 
 import (
@@ -55,26 +35,26 @@ func main() {
 
 	//初始化缓存表
 	cacheMap = make(map[string]string)
-	
+
 	/*从命令行接收监听端口和节点名称*/
 	//从命令行上接收一个用于监听的端口:peer pa 1234
 	peerName = os.Args[1]
 	peerListeningPort = os.Args[2]
 	fmt.Println(peerListeningPort, peerName)
-	
+
 	/*
 	向注册器注册自己
 	reg pa 1234
 	*/
 	peerAddress := RegOrGetPeerListeningAddress("reg " + peerName + " " + peerListeningPort)
 	fmt.Println("节点注册成功", peerName, peerAddress)
-	
+
 	/*在独立并发任务中接收其它节点的消息*/
 	go StartServe()
-	
+
 	/*在独立并发任务中向其它节点发送消息*/
 	go StartRequest()
-	
+
 	//不能主协程会在此挂掉（如果主协程挂掉，子协程就跟着挂掉了）
 	for {
 		time.Sleep(1 * time.Second)
@@ -109,16 +89,16 @@ func RegOrGetPeerListeningAddress(request string) string {
 	//拨号【注册服务器】
 	conn, e := net.Dial("tcp", registerAddress)
 	HandleErr(e, "RegOrGetPeerListeningAddress")
-	
+
 	//发送注册/查询命令
 	conn.Write([]byte(request))
-	
+
 	//得到要注册/查询的节点的监听地址
 	buffer := make([]byte, 1024)
 	n, e := conn.Read(buffer)
 	HandleErr(e, "RegGetPeerAddressconn.Read(buffer)")
 	peerAddress := string(buffer[:n])
-	
+
 	//返回这个监听地址
 	return peerAddress
 
@@ -137,14 +117,14 @@ func StartServe() {
 	for {
 		conn, e := listener.Accept()
 		HandleErr(e, "listener.Accept()")
-	
+
 		//接收远程节点的消息
 		buffer := make([]byte, 1024)
 		n, err := conn.Read(buffer)
 		HandleErr(err, "conn.Read(buffer)")
 		msg := string(buffer[:n])
 		fmt.Println(conn.RemoteAddr(), ":", msg)
-	
+
 		//接收完毕立即断开
 		conn.Close()
 	}
@@ -159,35 +139,34 @@ func StartRequest() {
 
 	//目标节点名称，要发送的消息
 	var targetName, msg string
-	
+
 	for {
-	
+
 		//从控制台输入信息
 		fmt.Println("请输入对方名称：消息内容")
 		fmt.Scan(&targetName, &msg)
-	
+
 		//看看缓存中是否有节点信息
 		var targetAddress string
 		if temp, ok := cacheMap[targetName]; !ok {
 			//向注册器查询节点的监听地址
 			fmt.Println("从注册服务器获得节点监听地址")
 			targetAddress = RegOrGetPeerListeningAddress("get " + targetName)
-	
+
 			//将查询结果写入缓存
 			cacheMap[targetName] = targetAddress
-	
+
 		} else {
-	
 			//使用缓存中的监听地址
 			fmt.Println("从缓存获得节点监听地址")
 			targetAddress = temp
 		}
-	
+
 		//向目标地址发送消息
 		conn, e := net.Dial("tcp", targetAddress)
 		HandleErr(e, "net.Dial")
 		conn.Write([]byte(msg))
-	
+
 		//消息发送完毕，断开连接
 		conn.Close()
 	}
@@ -195,94 +174,3 @@ func StartRequest() {
 }
 
 
-```
-
-## 节点注册服务器
-
-节点注册服务器作为基础设施，提供节点的注册和查询功能
-registerer.go 代码实现如下
-
-```go
-package main
-
-import (
-	"fmt"
-	"net"
-	"os"
-	"strings"
-)
-
-/*
-负责注册节点名称：节点运行端口
-*/
-func RHandleErr(err error, when string)  {
-	if err != nil{
-		fmt.Println("注册器err=",err,when)
-		os.Exit(1)
-	}
-}
-
-//所有节点【名称-监听地址】映射表
-var peerNameListeningAddressMap map[string]string
-
-/*注册机的主业务*/
-func main() {
-
-	//初始化注册表
-	peerNameListeningAddressMap = make(map[string]string)
-	
-	//开启注册服务
-	listener, e := net.Listen("tcp", ":8888")
-	RHandleErr(e,"net.Listen")
-	
-	buffer := make([]byte, 1024)
-	
-	/*循环接受节点的注册和查询服务*/
-	for  {
-		conn, e := listener.Accept()
-		RHandleErr(e,"listener.Accept()")
-	
-		/*
-		接收节点消息
-		reg pa 1234 	注册：节点名称pa，监听端口1234
-		get pa 			查询：节点名称为pa的节点的监听地址
-		*/
-		n, e := conn.Read(buffer)
-		RHandleErr(e,"conn.Read(buffer)")
-		msg := string(buffer[:n])
-	
-		//将消息炸碎为字符串，获取命令和节点名称
-		strs := strings.Split(msg, " ")
-		cmd := strs[0]
-		peerName := strs[1]
-	
-		if cmd == "reg"{
-			//将节点名称和【节点-地址】写入全局映射表 reg pa 1234
-			runningAddress := conn.RemoteAddr().String()
-	
-			//拼接节点的IP和监听端口,得到节点的监听地址
-			peerIP := strings.Split(runningAddress, ":")[0]
-			peerListeningPort := strs[2]
-			listenAddress := peerIP +":" + peerListeningPort
-	
-			//节点名称为键，监听地址为值，写入map（下次就可以供别人查询了）
-			peerNameListeningAddressMap[peerName] = listenAddress
-	
-			//将节点的名称和监听地址写入全局映射表
-			conn.Write([]byte(listenAddress))
-	
-		} else if cmd=="get"{
-	
-			//根据节点名称查询节点监听地址
-			listeningAddress := peerNameListeningAddressMap[peerName]
-			conn.Write([]byte(listeningAddress))
-	
-		}
-	
-		//断开会话，继续接受其他节点的注册或查询请求
-		conn.Close()
-	}
-
-}
-
-```
