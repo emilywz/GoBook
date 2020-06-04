@@ -1,128 +1,18 @@
-# 文本大数据处理2：文件分割与入库
-
-## 需求分析
-
-上一节我们对文本大数据进行了读入和清洗，这一节我们把清洗后的数据存入MySQL数据库，清洗过后的有效信息约为1800万条；
-
-## 思路分析
-
-要想提高数据写入的速度，我们一方面要做并发的数据库写入，一方面又要尽量减少操作的次数，一次性插入尽可能多的记录；
-
-## 最终的方案如下
-
-主要的性能瓶颈其实是主协程对文本的读取速度，可以事先对文件进行分割操作，然后并发地做数据读入；
-
-主协程逐条读取文本大数据，将数据封装后丢入全局数据管道；
-
-开辟10条数据库写入协程，每个写入协程使用一个独立的数据库连接；
-
-数据写入协程各自独立地从全局数据管道中获取数据，每满1000条就做一次数据库写入操作；
-
-## 文件分割
-
-协程并发1读10写，将1个大文件分割为10个小文件
-
-```go
 package main
 
 import (
 	"bufio"
 	"fmt"
+	"github.com/jmoiron/sqlx"
 	"io"
-	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
+	"runtime"
 )
 
-var (
-	//全局数据管道
-	ch chan string
-	wg sync.WaitGroup
-)
-
-func main() {
-
-	/*主协程读入数据，将不同省份的记录丢入对应的管道*/
-	file, _ := os.Open(`D:\GoIP\腾讯课堂公开课2019\数据\kaifang_good.txt`)
-	defer file.Close()
-	
-	//初始化数据管道
-	//ch = make(chan []byte)
-	ch = make(chan string)
-	
-	/*并发10个文件写入协程*/
-	for i:=0;i<10;i++{
-		wg.Add(1)
-	
-		/*协程任务：从管道中拉取数据并写入到文件中*/
-		go func(indx int) {
-			f, err := os.OpenFile(`D:\GoIP\腾讯课堂公开课2019\数据\kaifang_good_`+strconv.Itoa(indx)+`.txt`,os.O_CREATE|os.O_WRONLY|os.O_TRUNC,0666)
-			HandleError(err,`os.OpenFile`)
-			defer f.Close()
-	
-			totalLines := 0
-			for lineStr := range ch{
-				//向文件中写出UTF-8字符串
-				f.WriteString(lineStr)
-	
-				//统计写出数量
-				totalLines ++
-				log.Printf("协程%d写入：%d",indx,totalLines)
-			}
-			wg.Done()
-		}(i)
-	}
-
-
-	//创建缓冲读取器
-	reader := bufio.NewReader(file)
-	totalLines := 0
-	for {
-		//读取一行字符串（编码为UTF-8）
-		lineStr, err := reader.ReadString('\n')
-		totalLines ++
-		println("读取数据：",totalLines)
-	
-		//读取完毕时，关闭所有数据管道，并退出读取
-		if err == io.EOF {
-			fmt.Println("已经读到文件末尾！")
-			close(ch)
-			break
-		}
-	
-		ch <- lineStr
-	}
-	
-	//阻塞等待所有协程结束任务
-	wg.Wait()
-	fmt.Println("main over!")
-
-}
-
-/*处理错误*/
-func HandleError(err error,when string){
-	if err!= nil{
-		log.Fatal(err,when)
-	}
-}
-
-
-```
-
-最终执行效果
-
-![20190219123737533](..\image\20190219123737533.png)
-
-总共有将近1900万条数据，被分割为10个文件
-
-![20190219123837161](..\image\20190219123837161.png)
-
-## 数据入库
-
-先来看一下开房者信息的结构封装
-
-```go
 type KfPerson struct {
 	Id     int    `db:"id"`
 	//姓名
@@ -137,20 +27,6 @@ type KfPerson struct {
 	Address string `db:"address"`
 }
 
-```
-
-对应的表中有6个字段，其中5个是信息字段，1个id主键
-
-![20190219134245863](..\image\20190219134245863.png)
-
-## 入库代码实现
-
-上面我们已经将文件分割为了10个小文件，接下来我们开辟10读20写共30条协程，对数据实施入库；
-每个写入协程使用一个独立的数据库连接；
-每连接每次写入的数量为1000条数据；
-代码实现如下：
-
-```
 var (
 	//全局数据管道
 	chanData chan *KfPerson
@@ -158,14 +34,11 @@ var (
 	//管道是否已关闭
 	readingFinished int
 	chanDataClosed  bool
-	
-	//全局等待组
 	wg sync.WaitGroup
-
 )
 
 /*全局错误处理*/
-func HandleError(err error, why string) {
+func DBHandleError(err error, why string) {
 	if err != nil {
 		fmt.Println("ERROR OCCURED!!!", err, why)
 	}
@@ -176,15 +49,15 @@ func main() {
 
 	//记录开始时间
 	start := time.Now().Unix()
-	
+
 	//主协程数据库连接
+
 	db, err := sqlx.Connect("mysql", "root:123456@tcp(127.0.0.1:3306)/kaifang")
-	HandleError(err, "sqlx.Open")
+	DBHandleError(err, "sqlx.Open")
 	defer db.Close()
-	
+
 	//必要时先建表
 	_, err = db.Exec(`create table if not exists kfperson(
-
   		id int primary key auto_increment,
   		name varchar(20),
   		idcard char(18),
@@ -192,12 +65,12 @@ func main() {
   		birthday char(8),
   		address varchar(100)
 	);`)
-	HandleError(err, "db.Exec create table")
+	DBHandleError(err, "db.Exec create table")
 	fmt.Println("数据表已创建")
 
 	//创建全局数据管道
 	chanData = make(chan *KfPerson)
-	
+
 	//开辟20条协程，执行数据插入任务，并注册在等待组
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
@@ -207,46 +80,46 @@ func main() {
 			wg.Done()
 		}()
 	}
-	
+
 	/*开辟10条读取协程，分别读取不同的文件*/
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(index int) {
 			//打开大数据文本
-			file, e := os.Open(`D:\GoIP\腾讯课堂公开课2019\数据\kaifang_good_` + strconv.Itoa(index) + `.txt`)
-			HandleError(e, "os.Open")
+			file, e := os.Open(`.\dataSet\kaifang_good_` + strconv.Itoa(index) + `.txt`)
+			DBHandleError(e, "os.Open")
 			defer file.Close()
-	
+
 			//创建缓冲读取器
 			reader := bufio.NewReader(file)
 			fmt.Println("大数据文本已打开")
-	
+
 			/*逐条读入开房者信息，丢入管道*/
 			for {
-	
+
 				//读取一行数据
 				lineBytes, _, err := reader.ReadLine()
-				HandleError(err, "reader.ReadLine")
-	
+				DBHandleError(err, "reader.ReadLine")
+
 				//读到文件末尾时，关闭数据管道（通知其它协程停止对该管道的扫描）
 				if err == io.EOF {
 					//完毕的读取协程+1
 					readingFinished ++
-	
+
 					//读取协程全部完毕时，关闭数据管道
 					if readingFinished > 9 && !chanDataClosed {
 						close(chanData)
 						chanDataClosed = true
 					}
-	
+
 					//退出读取
 					break
 				}
-	
+
 				//以逗号为定界符，将字符串数据炸碎为字段
 				lineStr := string(lineBytes)
 				fields := strings.Split(lineStr, ",")
-	
+
 				if len(fields) > 4 {
 					//将合法字段封装为KfPerson，并丢入全局数据管道
 					name, idcard, gender, birthday, address := fields[0], fields[1], fields[2], fields[3], fields[4]
@@ -256,15 +129,15 @@ func main() {
 					//fmt.Println("脏数据：", lineStr)
 				}
 			}
-	
+
 			wg.Done()
 		}(i)
 	}
-	
+
 	//等待所有子协程完成任务
 	wg.Wait()
 	fmt.Println("main over!")
-	
+
 	end := time.Now().Unix()
 	fmt.Printf("共用时%d秒\n", end-start)
 
@@ -275,23 +148,23 @@ func DoInsertJob() {
 
 	//创建当前协程的数据库连接
 	db, err := sqlx.Connect("mysql", "root:123456@tcp(127.0.0.1:3306)/kaifang")
-	HandleError(err, "sqlx.Open")
+	DBHandleError(err, "sqlx.Open")
 	defer db.Close()
-	
+
 	//创建KfPerson切片，长度达到阈值时，做一次数据库写入操作
 	kfs := make([]*KfPerson, 0)
-	
+
 	//扫描管道数据（直到管道被关闭）
 	for kfPerson := range chanData {
-	
+
 		//向切片中添加开房者
 		kfs = append(kfs, kfPerson)
-	
+
 		//切片中的数据量每达到1000（或者管道已关闭），就执行一次数数据库写入操作
 		if len(kfs) > 1000 || chanDataClosed {
 			//执行数据库插入
 			insertPersons2DB(db, kfs)
-	
+
 			//清空切片并重新创建
 			CleanSlice(kfs)
 			kfs = make([]*KfPerson, 0)
@@ -319,7 +192,7 @@ func insertPersons2DB(db *sqlx.DB, kps []*KfPerson) error {
 
 	//构建SQL语句
 	sql := `insert into kfperson(name,idcard,gender,birthday,address) values`
-	
+
 	/*拼接每个开房者信息到SQL语句中*/
 	for _, kp := range kps {
 		/*
@@ -334,23 +207,23 @@ func insertPersons2DB(db *sqlx.DB, kps []*KfPerson) error {
 		}
 		//kp.Address = strings.Replace(kp.Address, `"`, "*", -1)
 		//kp.Address = strings.Replace(kp.Address, `''`, "*", -1)
-	
+
 		/*拼接名字为SQL语句*/
 		personValue := `("` + kp.Name + `","` + kp.Idcard + `","` + kp.Gender + `","` + kp.Birthday + `","` + kp.Address + `"),`
 		//insert into kfperson(name,idcard,gender,birthday,address) values("张三","123456199001011234","M","19900101","火星"),("李四","123456199001011234","M","19900101","火星"),("王五","123456199001011234","M","19900101","火星")
 		sql += personValue
 	}
-	
+
 	//去掉最后一个逗号再加分号，形成最终SQL语句
 	sql = sql[:len(sql)-1] + ";"
 	//fmt.Println(sql)
-	
+
 	//执行SQL语句
 	result, err := db.Exec(sql)
 	if err != nil {
 		panic(err)
 	}
-	
+
 	//打印受影响的行数
 	affected, err := result.RowsAffected()
 	if err == nil {
@@ -358,29 +231,7 @@ func insertPersons2DB(db *sqlx.DB, kps []*KfPerson) error {
 	} else {
 		fmt.Println("!!!!!!!!!执行失败!!!!!!!!!!", err)
 	}
-	
+
 	return nil
 
 }
-
-```
-
-最终用时250秒，完成对1800万条数据的读入和数据库插入
-
-![20190219134723387](..\image\20190219134723387.png)
-
-![20190219134748961](..\image\20190219134748961.png)
-
-![20190219134829814](..\image\20190219134829814.png)
-
-
-加入兄弟连Go区块链帝国，获取海量免费学习资源，并天天有惊喜（小姐姐出没）
-
-
-桫哥带你学Golang云盘
-链接：https://pan.baidu.com/s/1LsajZhxEp5G5JvK1VhrSxQ
-提取码：nab8
-
-Go全栈区块链全套视频教程分享组
-https://pan.baidu.com/mbox/homepage?short=kW1ZI6r
-
